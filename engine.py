@@ -5,24 +5,25 @@ import subprocess
 import time
 import uuid
 from enum import Enum
+import wave
 
 import boto3
 import numpy as np
 import requests
 import soundfile
 from deepspeech import Model
+
 from google.cloud import speech
-from google.cloud.speech import enums
-from google.cloud.speech import types
+
 from pocketsphinx import get_model_path
 from pocketsphinx.pocketsphinx import Decoder
 
 
 class ASREngines(Enum):
     AMAZON_TRANSCRIBE = "AMAZON_TRANSCRIBE"
-    CMU_POCKET_SPHINX = 'CMU_POCKET_SPHINX'
+    CMU_POCKET_SPHINX = "CMU_POCKET_SPHINX"
     GOOGLE_SPEECH_TO_TEXT = "GOOGLE_SPEECH_TO_TEXT"
-    MOZILLA_DEEP_SPEECH = 'MOZILLA_DEEP_SPEECH'
+    MOZILLA_DEEP_SPEECH = "MOZILLA_DEEP_SPEECH"
     PICOVOICE_CHEETAH = "PICOVOICE_CHEETAH"
     PICOVOICE_CHEETAH_LIBRISPEECH_LM = "PICOVOICE_CHEETAH_LIBRISPEECH_LM"
     PICOVOICE_LEOPARD = "PICOVOICE_LEOPARD"
@@ -49,28 +50,31 @@ class ASREngine(object):
         elif engine_type is ASREngines.PICOVOICE_CHEETAH:
             return PicovoiceCheetahASREngine()
         elif engine_type is ASREngines.PICOVOICE_CHEETAH_LIBRISPEECH_LM:
-            return PicovoiceCheetahASREngine(lm='language_model_librispeech.pv')
+            return PicovoiceCheetahASREngine(lm="language_model_librispeech.pv")
         elif engine_type is ASREngines.PICOVOICE_LEOPARD:
             return PicovoiceLeopardASREngine()
         elif engine_type is ASREngines.PICOVOICE_LEOPARD_LIBRISPEECH_LM:
-            return PicovoiceLeopardASREngine(lm='language_model_librispeech.pv')
+            return PicovoiceLeopardASREngine(lm="language_model_librispeech.pv")
         else:
-            raise ValueError("cannot create %s of type '%s'" % (cls.__name__, engine_type))
+            raise ValueError(
+                "cannot create %s of type '%s'" % (cls.__name__, engine_type)
+            )
 
 
 class AmazonTranscribe(ASREngine):
     def __init__(self):
-        self._s3 = boto3.client('s3')
+        self._s3 = boto3.client("s3")
         self._s3_bucket = str(uuid.uuid4())
         self._s3.create_bucket(
-            ACL='private',
+            ACL="private",
             Bucket=self._s3_bucket,
-            CreateBucketConfiguration={'LocationConstraint': 'us-west-2'})
+            CreateBucketConfiguration={"LocationConstraint": "us-west-2"},
+        )
 
-        self._transcribe = boto3.client('transcribe')
+        self._transcribe = boto3.client("transcribe")
 
     def transcribe(self, path):
-        cache_path = path.replace('.wav', '.aws')
+        cache_path = path.replace(".wav", ".aws")
 
         if os.path.exists(cache_path):
             with open(cache_path) as f:
@@ -82,28 +86,38 @@ class AmazonTranscribe(ASREngine):
 
         self._transcribe.start_transcription_job(
             TranscriptionJobName=job_name,
-            Media={'MediaFileUri': 'https://s3-us-west-2.amazonaws.com/%s/%s' % (self._s3_bucket, s3_object)},
-            MediaFormat='wav',
-            LanguageCode='en-US')
+            Media={
+                "MediaFileUri": "https://s3-us-west-2.amazonaws.com/%s/%s"
+                % (self._s3_bucket, s3_object)
+            },
+            MediaFormat="wav",
+            LanguageCode="en-US",
+        )
 
         while True:
-            status = self._transcribe.get_transcription_job(TranscriptionJobName=job_name)
-            if status['TranscriptionJob']['TranscriptionJobStatus'] is 'COMPLETED':
+            status = self._transcribe.get_transcription_job(
+                TranscriptionJobName=job_name
+            )
+            if status["TranscriptionJob"]["TranscriptionJobStatus"] == "COMPLETED":
                 break
             time.sleep(5)
 
-        content = requests.get(status['TranscriptionJob']['Transcript']['TranscriptFileUri'])
+        content = requests.get(
+            status["TranscriptionJob"]["Transcript"]["TranscriptFileUri"]
+        )
 
-        res = json.loads(content.content.decode('utf8'))['results']['transcripts'][0]['transcript']
-        res = res.translate(str.maketrans('', '', string.punctuation))
+        res = json.loads(content.content.decode("utf8"))["results"]["transcripts"][0][
+            "transcript"
+        ]
+        res = res.translate(str.maketrans("", "", string.punctuation))
 
-        with open(cache_path, 'w') as f:
+        with open(cache_path, "w") as f:
             f.write(res)
 
         return res
 
     def __str__(self):
-        return 'Amazon Transcribe'
+        return "Amazon Transcribe"
 
 
 class CMUPocketSphinxASREngine(ASREngine):
@@ -149,65 +163,73 @@ class GoogleSpeechToText(ASREngine):
         self._client = speech.SpeechClient()
 
     def transcribe(self, path):
-        cache_path = path.replace('.wav', '.ggl')
+        cache_path = path.replace(".wav", ".ggl")
         if os.path.exists(cache_path):
             with open(cache_path) as f:
                 return f.read()
 
-        with open(path, 'rb') as f:
+        with open(path, "rb") as f:
             content = f.read()
 
-        audio = types.RecognitionAudio(content=content)
-        config = types.RecognitionConfig(
-            encoding=enums.RecognitionConfig.AudioEncoding.LINEAR16,
+        audio = speech.RecognitionAudio(content=content)
+        config = speech.RecognitionConfig(
+            encoding=speech.RecognitionConfig.AudioEncoding.LINEAR16,
             sample_rate_hertz=16000,
-            language_code='en-US')
+            language_code="en-US",
+        )
 
-        response = self._client.recognize(config, audio)
+        response = self._client.recognize(config=config, audio=audio)
 
-        res = ' '.join(result.alternatives[0].transcript for result in response.results)
-        res = res.translate(str.maketrans('', '', string.punctuation))
+        res = " ".join(result.alternatives[0].transcript for result in response.results)
+        res = res.translate(str.maketrans("", "", string.punctuation))
 
-        with open(cache_path, 'w') as f:
+        with open(cache_path, "w") as f:
             f.write(res)
 
         return res
 
     def __str__(self):
-        return 'Google Speech-to-Text'
+        return "Google Speech-to-Text"
 
 
 class MozillaDeepSpeechASREngine(ASREngine):
     def __init__(self):
-        deepspeech_dir = os.path.join(os.path.dirname(__file__), 'resources/deepspeech')
-        model_path = os.path.join(deepspeech_dir, 'output_graph.pbmm')
-        alphabet_path = os.path.join(deepspeech_dir, 'alphabet.txt')
-        language_model_path = os.path.join(deepspeech_dir, 'lm.binary')
-        trie_path = os.path.join(deepspeech_dir, 'trie')
+        deepspeech_dir = os.path.join(os.path.dirname(__file__), "resources/deepspeech")
+        model_path = os.path.join(deepspeech_dir, "deepspeech-0.9.3-models.pbmm")
+        # alphabet_path = os.path.join(deepspeech_dir, "alphabet.txt")
+        # language_model_path = os.path.join(deepspeech_dir, "lm.binary")
+        # trie_path = os.path.join(deepspeech_dir, "trie")
 
         # https://github.com/mozilla/DeepSpeech/blob/master/native_client/python/client.py
-        self._model = Model(model_path, 500)
-        self._model.enableDecoderWithLM(language_model_path, trie_path, 0.75, 1.85)
+        self._model = Model(model_path)
+        # self._model.enableDecoderWithLM(language_model_path, trie_path, 0.75, 1.85)
 
     def transcribe(self, path):
-        pcm, sample_rate = soundfile.read(path)
-        pcm = (np.iinfo(np.int16).max * pcm).astype(np.int16)
-        res = self._model.stt(pcm)
+        fin = wave.open(path, "rb")
+        fs_orig = fin.getframerate()
+        audio = np.frombuffer(fin.readframes(fin.getnframes()), np.int16)
+        # audio_length = fin.getnframes() * (1 / fs_orig)
+        fin.close()
+        # pcm, sample_rate = soundfile.read(path)
+        # pcm = (np.iinfo(np.int16).max * pcm).astype(np.int16)
+        res = self._model.stt(audio)
 
         return res
 
     def __str__(self):
-        return 'Mozilla DeepSpeech'
+        return "Mozilla DeepSpeech"
 
 
 class PicovoiceCheetahASREngine(ASREngine):
-    def __init__(self, lm='language_model.pv'):
-        cheetah_dir = os.path.join(os.path.dirname(__file__), 'resources/cheetah')
-        self._cheetah_demo_path = os.path.join(cheetah_dir, 'cheetah_demo')
-        self._cheetah_library_path = os.path.join(cheetah_dir, 'libpv_cheetah.so')
-        self._cheetah_acoustic_model_path = os.path.join(cheetah_dir, 'acoustic_model.pv')
+    def __init__(self, lm="language_model.pv"):
+        cheetah_dir = os.path.join(os.path.dirname(__file__), "resources/cheetah")
+        self._cheetah_demo_path = os.path.join(cheetah_dir, "cheetah_demo")
+        self._cheetah_library_path = os.path.join(cheetah_dir, "libpv_cheetah.so")
+        self._cheetah_acoustic_model_path = os.path.join(
+            cheetah_dir, "acoustic_model.pv"
+        )
         self._cheetah_language_model_path = os.path.join(cheetah_dir, lm)
-        self._cheetah_license_path = os.path.join(cheetah_dir, 'cheetah_eval_linux.lic')
+        self._cheetah_license_path = os.path.join(cheetah_dir, "cheetah_eval_linux.lic")
 
     def transcribe(self, path):
         args = [
@@ -216,27 +238,28 @@ class PicovoiceCheetahASREngine(ASREngine):
             self._cheetah_acoustic_model_path,
             self._cheetah_language_model_path,
             self._cheetah_license_path,
-            path]
-        res = subprocess.run(args, stdout=subprocess.PIPE).stdout.decode('utf-8')
+            path,
+        ]
+        res = subprocess.run(args, stdout=subprocess.PIPE).stdout.decode("utf-8")
 
         # Remove license notice
-        filtered_res = [x for x in res.split('\n') if '[' not in x]
-        filtered_res = '\n'.join(filtered_res)
+        filtered_res = [x for x in res.split("\n") if "[" not in x]
+        filtered_res = "\n".join(filtered_res)
 
-        return filtered_res.strip('\n ')
+        return filtered_res.strip("\n ")
 
     def __str__(self):
-        return 'Picovoice Cheetah'
+        return "Picovoice Cheetah"
 
 
 class PicovoiceLeopardASREngine(ASREngine):
-    def __init__(self, lm='language_model.pv'):
-        leopard_dir = os.path.join(os.path.dirname(__file__), 'resources/leopard')
-        self._demo_path = os.path.join(leopard_dir, 'leopard_demo')
-        self._library_path = os.path.join(leopard_dir, 'libpv_leopard.so')
-        self._acoustic_model_path = os.path.join(leopard_dir, 'acoustic_model.pv')
+    def __init__(self, lm="language_model.pv"):
+        leopard_dir = os.path.join(os.path.dirname(__file__), "resources/leopard")
+        self._demo_path = os.path.join(leopard_dir, "leopard_demo")
+        self._library_path = os.path.join(leopard_dir, "libpv_leopard.so")
+        self._acoustic_model_path = os.path.join(leopard_dir, "acoustic_model.pv")
         self._language_model_path = os.path.join(leopard_dir, lm)
-        self._license_path = os.path.join(leopard_dir, 'leopard_eval_linux.lic')
+        self._license_path = os.path.join(leopard_dir, "leopard_eval_linux.lic")
 
     def transcribe(self, path):
         args = [
@@ -245,14 +268,16 @@ class PicovoiceLeopardASREngine(ASREngine):
             self._acoustic_model_path,
             self._language_model_path,
             self._license_path,
-            path]
-        res = subprocess.run(args, stdout=subprocess.PIPE).stdout.decode('utf-8')
+            path,
+        ]
+        res = subprocess.run(args, stdout=subprocess.PIPE).stdout.decode("utf-8")
 
         # Remove license notice
-        filtered_res = [x for x in res.split('\n') if '[' not in x]
-        filtered_res = '\n'.join(filtered_res)
+        filtered_res = [x for x in res.split("\n") if "[" not in x]
+        filtered_res = "\n".join(filtered_res)
 
-        return filtered_res.strip('\n ')
+        return filtered_res.strip("\n ")
 
     def __str__(self):
-        return 'Picovoice Leopard'
+        return "Picovoice Leopard"
+
