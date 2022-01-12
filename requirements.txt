@@ -7,3 +7,6 @@ numpy
 pocketsphinx
 requests
 soundfile
+google-cloud-speech
+google-api-core
+google-api-python-client
