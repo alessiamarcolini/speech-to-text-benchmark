@@ -27,6 +27,12 @@ class Dataset(object):
                     os.path.dirname(__file__), "resources/data/LibriSpeech/test-clean"
                 )
             )
+        if dataset_type == "SpeechAccentArchive":
+            return SpeechAccentArchiveDataset(
+                os.path.join(
+                    os.path.dirname(__file__), "resources/data/SpeechAccentArchiveWAV"
+                )
+            )
         else:
             raise ValueError(
                 "cannot create %s of type '%s'" % (cls.__name__, dataset_type)
@@ -70,3 +76,30 @@ class LibriSpeechDataset(Dataset):
 
     def __str__(self):
         return "LibriSpeech"
+
+
+class SpeechAccentArchiveDataset(Dataset):
+    def __init__(self, root):
+        self._data = list()
+
+        recordings_paths = [
+            os.path.join(root, "recordings", f)
+            for f in os.listdir(os.path.join(root, "recordings"))
+        ]
+        print(recordings_paths[0])
+        transcript_path = os.path.join(root, "reading-passage.txt")
+
+        with open(transcript_path, "r") as f:
+            transcript = f.readline()
+
+        for wav_path in recordings_paths:
+            self._data.append((wav_path, transcript))
+
+    def size(self):
+        return len(self._data)
+
+    def get(self, index):
+        return self._data[index]
+
+    def __str__(self):
+        return "SpeechAccentArchive"
